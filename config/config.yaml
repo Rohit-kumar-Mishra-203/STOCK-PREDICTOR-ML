@@ -1,0 +1,38 @@
+# Central configuration — change behavior here, not in code.
+
+data:
+  tickers: ["AAPL", "TSLA", "NVDA"]     # start small: liquid, well-covered stocks
+  start_date: "2020-01-01"
+  end_date: null                          # null = today
+  price_interval: "1d"                    # daily candles
+  news_lookback_days: 30                  # how far back to pull news on first run
+
+sentiment:
+  model_name: "ProsusAI/finbert"          # pretrained financial sentiment model
+  batch_size: 16
+  max_length: 128                         # headlines are short, keep this small for speed
+
+features:
+  lag_days: [1, 2, 3, 5, 10]              # lagged price/sentiment features
+  technical_indicators: ["rsi", "macd", "sma_10", "sma_50", "bbands"]
+  sentiment_agg: "mean"                   # how to aggregate multiple articles/day
+
+target:
+  type: "direction"                       # "direction" (classification) or "return" (regression)
+  horizon_days: 1                         # predict next-day movement
+
+model:
+  train_test_split_date: "2024-01-01"     # chronological split, NEVER random for time series
+  baseline: "xgboost"
+  candidates: ["xgboost", "lstm"]
+
+paths:
+  raw_prices: "data/raw/prices"
+  raw_news: "data/raw/news"
+  processed: "data/processed"
+  models: "models_store"
+  logs: "logs"
+
+mlflow:
+  experiment_name: "stock-movement-prediction"
+  tracking_uri: "./mlruns"
