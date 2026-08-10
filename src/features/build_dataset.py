@@ -152,6 +152,56 @@ def build_target(df: pd.DataFrame, horizon_days: int, target_type: str) -> pd.Da
 
     return df
 
+def add_normalized_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert absolute price-level features into relative/normalized ones.
+
+    WHY THIS MATTERS FOR TREE-BASED MODELS: XGBoost splits on absolute
+    thresholds (e.g. "Close > 150"). If training data covers one price
+    range (e.g. AAPL $60-$200) and test data covers a different range
+    (e.g. $250-$340), the model is effectively extrapolating beyond
+    anything it learned from - trees handle this very poorly, unlike
+    linear models which can at least project a trend. Ratios and
+    percentage differences (e.g. Close/SMA_50) stay in a stable,
+    comparable range regardless of the stock's absolute price level
+    or how much it's grown over time.
+
+    LOOKAHEAD CHECK: every ratio here divides same-day or past values
+    by same-day or past values (Close_t / SMA_50_t, Close_t / Close_{t-lag}).
+    No future information enters any of these - same safety guarantee
+    as the raw features they're derived from.
+    """
+    df = df.copy()
+
+    df["close_to_sma10"] = df["Close"] / df["sma_10"]
+    df["close_to_sma50"] = df["Close"] / df["sma_50"]
+    df["sma10_to_sma50"] = df["sma_10"] / df["sma_50"]
+
+    # Position within the Bollinger Bands, 0 = at lower band, 1 = at upper band
+    df["bb_position"] = (df["Close"] - df["bb_lower"]) / (df["bb_upper"] - df["bb_lower"])
+
+    df["high_low_pct"] = (df["High"] - df["Low"]) / df["Close"]
+    df["open_close_pct"] = (df["Close"] - df["Open"]) / df["Open"]
+
+    # MACD is already a difference of EMAs, but its absolute magnitude still
+    # scales with the stock's price level - normalize by dividing by Close
+    df["macd_line_norm"] = df["macd_line"] / df["Close"]
+    df["macd_signal_norm"] = df["macd_signal"] / df["Close"]
+    df["macd_histogram_norm"] = df["macd_histogram"] / df["Close"]
+
+    # Volume also trends over years (more shares outstanding, more interest) -
+    # compare to its own recent rolling average instead of raw share count
+    df["volume_to_avg20"] = df["Volume"] / df["Volume"].rolling(window=20, min_periods=20).mean()
+
+    # Replace raw lagged prices with a ratio (equivalent to an N-day return),
+    # which is naturally scale-invariant
+    lag_cols = [c for c in df.columns if c.startswith("close_lag_")]
+    for col in lag_cols:
+        lag = col.split("_")[-1]
+        df[f"close_ratio_lag_{lag}"] = df["Close"] / df[col]
+
+    return df
+
 
 def build_ticker_features(ticker: str) -> pd.DataFrame:
     """
@@ -185,6 +235,7 @@ def build_ticker_features(ticker: str) -> pd.DataFrame:
     df = add_sentiment_features(df)
     df = add_return_features(df)
     df = add_lag_features(df, lag_days=cfg["features"]["lag_days"])
+    df = add_normalized_features(df)
     df = fill_no_news_defaults(df)
 
     # ---- everything above this line is past-safe feature engineering ----

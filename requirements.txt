@@ -6,7 +6,7 @@ python-dotenv==1.0.1
 # Data processing
 pandas==2.2.3
 numpy==1.26.4
-pandas
+matplotlib==3.9.2
 
 # Classical ML
 scikit-learn==1.5.2
