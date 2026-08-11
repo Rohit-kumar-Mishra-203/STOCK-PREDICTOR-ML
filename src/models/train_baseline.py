@@ -33,6 +33,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import xgboost as xgb
 import mlflow
 import mlflow.xgboost
+import joblib
 
 from src.utils.config import get_config, resolve_path
 from src.utils.logger import logger
@@ -84,6 +85,37 @@ def chronological_split(df: pd.DataFrame, split_date: str) -> tuple[pd.DataFrame
         raise ValueError(f"No test rows after split_date {split_date} - check your data range and config.")
 
     return train, test
+
+
+
+def save_model_for_serving(model: xgb.XGBClassifier, feature_cols: list[str], ticker: str) -> None:
+    """
+    Save the trained model and its exact feature column order to disk,
+    separately from MLflow tracking.
+
+    Why separate from MLflow: MLflow is for experiment tracking/history
+    (comparing runs over time). This is for SERVING - the API needs a
+    simple, fast, direct way to load "the current production model" for
+    a ticker without querying MLflow's tracking store at request time.
+
+    Why we save feature_cols alongside the model: the API must build its
+    input DataFrame with EXACTLY the same columns, in the EXACTLY same
+    order, as what the model was trained on - otherwise XGBoost will
+    silently misinterpret which column means what. Saving this list next
+    to the model makes that contract explicit and enforceable, rather
+    than hoping the API code and training code never drift apart.
+    """
+    cfg = get_config()
+    model_dir = resolve_path(cfg["paths"]["models"]) / "production"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    model_path = model_dir / f"{ticker}_xgboost.joblib"
+    features_path = model_dir / f"{ticker}_features.joblib"
+
+    joblib.dump(model, model_path)
+    joblib.dump(feature_cols, features_path)
+
+    logger.info(f"Saved production model for {ticker} to {model_path}")
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
@@ -166,6 +198,7 @@ def run_for_ticker(ticker: str, split_date: str) -> dict:
     X_test, y_test = test_df[feature_cols], test_df["target"]
 
     model = train_xgboost(X_train, y_train)
+    save_model_for_serving(model, feature_cols, ticker)
     metrics = evaluate_model(model, X_test, y_test)
     naive = compute_naive_baseline(test_df)
 
