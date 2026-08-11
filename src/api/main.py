@@ -182,6 +182,30 @@ def predict(request: PredictionRequest):
     )
 
 
+@app.get("/history/{ticker}")
+def get_history(ticker: str, days: int = 90):
+    """
+    Returns recent price history for charting purposes.
+
+    Why this lives in the API rather than the dashboard reading the CSV
+    directly: keeps the API as the single access point to data - the
+    dashboard (or any future client) never touches the filesystem
+    directly, only the API contract.
+    """
+    ticker = ticker.upper()
+    cfg = get_config()
+    data_path = resolve_path(cfg["paths"]["processed"]) / f"{ticker}_final.csv"
+
+    if not data_path.exists():
+        raise HTTPException(status_code=404, detail=f"No processed data found for {ticker}")
+
+    df = pd.read_csv(data_path)
+    recent = df.tail(days)[["Date", "Close", "daily_return", "sentiment_positive", "sentiment_negative"]]
+
+    return recent.to_dict(orient="records")
+
+
+
 @app.get("/predict-latest/{ticker}", response_model=PredictionResponse)
 def predict_latest(ticker: str):
     """
