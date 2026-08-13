@@ -1,0 +1,38 @@
+# Why docker-compose over running two separate `docker run` commands:
+# defines both services, their networking (so the dashboard can reach
+# the API by service name), and volume mounts declaratively in one
+# file - the standard way to run a small multi-service app locally.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data/models from the host - NOT baked into the image (see
+      # design notes above). This means retraining on the host
+      # immediately reflects in the running container without a rebuild.
+      - ./data:/app/data
+      - ./models_store:/app/models_store
+      - ./logs:/app/logs
+    environment:
+      - ENV=production
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["streamlit", "run", "src/dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "8501:8501"
+    environment:
+      # Overrides the hardcoded localhost URL in app.py - inside Docker's
+      # network, containers reach each other by service name ("api"),
+      # not localhost. This requires one small code change (see below).
+      - API_BASE_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
